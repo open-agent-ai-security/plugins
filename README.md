@@ -49,15 +49,19 @@ uninstalls the plugins that came from it, and it isn't necessary. Migrating is o
 for praxen (the legacy repo still publishes a praxen-only marketplace) but **required to
 install socxen**, which only this catalog publishes.
 
-**socxen users** — if you installed the plugin as `socxen@socxen`, that marketplace was
-retired at the source, so this one does need an uninstall:
+**socxen users** — if you installed the plugin as `socxen@socxen`, remove that marketplace
+first. It has a *different* name from this one, so simply adding this catalog would leave you
+with two enabled copies of socxen (the current release and the retired one), both registering
+the `soc-investigate` skill:
 
 ```bash
-claude plugin uninstall socxen@socxen
-claude plugin marketplace remove socxen
+claude plugin marketplace remove socxen                        # also uninstalls socxen@socxen
 claude plugin marketplace add open-agent-ai-security/plugins   # re-points in place if already present
 claude plugin install socxen@open-agent-ai-security
 ```
+
+A separate `claude plugin uninstall socxen@socxen` isn't needed — removing the marketplace
+uninstalls its plugins, which is the point here.
 
 ## OpenAI Codex
 
