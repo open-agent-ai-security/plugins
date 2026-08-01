@@ -1,7 +1,14 @@
 # Open Agent AI Security — Plugin Marketplace
 
 The single [Claude Code](https://claude.com/claude-code) plugin marketplace for the
-[Open Agent AI Security](https://open-agent-ai-security.github.io/) community. Add it once:
+[Open Agent AI Security](https://open-agent-ai-security.github.io/) community.
+
+> **This repository exists solely to serve the community's plugin catalog** — one marketplace
+> manifest (`.claude-plugin/marketplace.json`) plus this README. There is no product code here:
+> each plugin's source, documentation, issues, and contributions live in its own repo (linked
+> below). This repo changes only to add a plugin or update a catalog entry, via a reviewed PR.
+
+Add it once:
 
 ```bash
 claude plugin marketplace add open-agent-ai-security/plugins
@@ -59,9 +66,13 @@ shared marketplace name until the old one is removed.
 - Index entries are deliberately minimal — no per-release version metadata. Each plugin
   repo's `plugin.json` is the version authority, so product releases never require a
   change here. Touch this repo only to add a plugin or update a description.
+- Entries pin each plugin repo's `main` branch (the release channel) via `url` + https
+  sources — anonymous-clone friendly; the `github` source type requires SSH keys.
 - The praxen repo carries a mirror of this index in its own
   `.claude-plugin/marketplace.json` (legacy install path); a CI check in that repo keeps
   the mirror in sync with this file.
+- `main` is protected: changes land by PR with a required approval, and CI sanity-checks
+  the manifest (`scripts/validate_catalog.py`).
 
 ## License
 
