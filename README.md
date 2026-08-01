@@ -46,9 +46,13 @@ not required.
 ```bash
 claude plugin uninstall socxen@socxen
 claude plugin marketplace remove socxen
-claude plugin marketplace add open-agent-ai-security/plugins   # skip if already added
+claude plugin marketplace add open-agent-ai-security/plugins   # skip only if already added from …/plugins
 claude plugin install socxen@open-agent-ai-security
 ```
+
+If a marketplace named `open-agent-ai-security` already exists but was added from the old
+praxen repo path, follow the praxen migration above first — the add commands conflict on the
+shared marketplace name until the old one is removed.
 
 ## For maintainers
 
