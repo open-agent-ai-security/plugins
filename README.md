@@ -31,13 +31,15 @@ migration is quick and nothing about your installed plugins' configuration is lo
 **Praxen users** — if you added the marketplace from `open-agent-ai-security/praxen`:
 
 ```bash
-claude plugin marketplace remove open-agent-ai-security
+claude plugin marketplace remove open-agent-ai-security   # this also uninstalls the plugin
 claude plugin marketplace add open-agent-ai-security/plugins
+claude plugin install praxen@open-agent-ai-security
 ```
 
-Your installed `praxen@open-agent-ai-security` keeps working and updating — only the
-index source changes. The old path remains a maintained mirror for now, so migration is
-recommended, not required.
+Removing a marketplace uninstalls the plugins that came from it, so the reinstall line is
+required — your plugin key and settings are unchanged, and the plugin re-enables as
+before. The old path remains a maintained mirror for now, so migration is recommended,
+not required.
 
 **socxen users** — if you installed the plugin as `socxen@socxen`:
 
