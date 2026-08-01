@@ -1,5 +1,8 @@
 # Copyright 2026 Exabeam, Inc.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Gates the catalog manifest — the single install path for every community
+# plugin on both Claude Code and Codex.
 name: validate
 
 on:
@@ -15,6 +18,25 @@ jobs:
   catalog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
       - name: Sanity-check the catalog manifest
+        run: |
+          # Run main's copy of the validator against the PR's manifest, so a PR
+          # cannot weaken the gate and repoint a source in the same change.
+          # (A PR that legitimately improves the validator shows this job
+          # passing under the OLD rules; the new rules take effect on merge.)
+          mkdir -p "$RUNNER_TEMP/gate"
+          if git show origin/main:scripts/validate_catalog.py > "$RUNNER_TEMP/gate/validate_catalog.py" 2>/dev/null; then
+            echo "::notice::running the validator from origin/main (PRs cannot grade their own homework)"
+            mkdir -p "$RUNNER_TEMP/gate/../.claude-plugin"
+            cp .claude-plugin/marketplace.json "$RUNNER_TEMP/.claude-plugin/marketplace.json"
+            python3 "$RUNNER_TEMP/gate/validate_catalog.py"
+          else
+            echo "::warning::could not read the validator from origin/main — falling back to this checkout's copy"
+            python3 scripts/validate_catalog.py
+          fi
+      - name: Re-run this branch's validator (informational)
+        if: always()
         run: python3 scripts/validate_catalog.py
