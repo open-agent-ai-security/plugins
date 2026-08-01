@@ -1,0 +1,12 @@
+# Copyright 2026 Exabeam, Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# The catalog manifest is the single install path for every community plugin,
+# and the validator is the gate that protects it. Both require an owner's
+# review — this is what stops one PR from weakening the gate and repointing a
+# plugin source together. Requires "Require review from Code Owners" on the
+# main branch protection rule.
+
+/.claude-plugin/  @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO
+/scripts/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO
+/.github/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO

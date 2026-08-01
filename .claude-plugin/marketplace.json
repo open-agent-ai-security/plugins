@@ -5,7 +5,7 @@
     "url": "https://github.com/open-agent-ai-security"
   },
   "metadata": {
-    "description": "Claude Code plugin marketplace for the Open Agent AI Security community. Add once, install any community plugin."
+    "description": "Plugin marketplace for the Open Agent AI Security community, serving Claude Code and OpenAI Codex. Add once, install any community plugin."
   },
   "plugins": [
     {

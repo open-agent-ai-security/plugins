@@ -1,5 +1,8 @@
 # Copyright 2026 Exabeam, Inc.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Gates the catalog manifest — the single install path for every community
+# plugin on both Claude Code and Codex.
 name: validate
 
 on:
@@ -15,6 +18,34 @@ jobs:
   catalog:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Sanity-check the catalog manifest
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Sanity-check the catalog manifest (rules from main)
+        run: |
+          # Run main's copy of the validator against the PR's manifest, so a PR
+          # cannot relax the RULES and repoint a source in the same change.
+          # (A PR that legitimately improves the validator shows this job
+          # passing under the OLD rules; the new rules take effect on merge.)
+          #
+          # NOTE: this does not make the job tamper-proof — on `pull_request`
+          # the workflow FILE also comes from the PR, so a PR can edit this
+          # step itself. The control that actually closes that is a required
+          # code-owner review on /.github/ and /scripts/ (see .github/CODEOWNERS
+          # and the README's maintainer notes). This step raises the cost and
+          # makes the tampering visible in the diff; it is not a substitute.
+          mkdir -p "$RUNNER_TEMP/gate" "$RUNNER_TEMP/.claude-plugin"
+          if ! git show origin/main:scripts/validate_catalog.py > "$RUNNER_TEMP/gate/validate_catalog.py"; then
+            # Fail CLOSED: if main's rules can't be read, we have not validated
+            # anything. Falling back to the PR's own copy would let a PR that
+            # breaks this lookup grade its own homework.
+            echo "::error::could not read scripts/validate_catalog.py from origin/main — refusing to validate with the PR's own copy"
+            exit 1
+          fi
+          echo "::notice::validating with the ruleset from origin/main"
+          cp .claude-plugin/marketplace.json "$RUNNER_TEMP/.claude-plugin/marketplace.json"
+          python3 "$RUNNER_TEMP/gate/validate_catalog.py"
+      - name: Re-run with this branch's validator (advisory only)
+        if: always()
+        continue-on-error: true
         run: python3 scripts/validate_catalog.py
