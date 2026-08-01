@@ -78,18 +78,27 @@ codex plugin list
 - Index entries are deliberately minimal — no per-release version metadata. Each plugin
   repo's `plugin.json` is the version authority, so product releases never require a
   change here. Touch this repo only to add a plugin or update a description.
-- Entries pin each plugin repo's `main` branch (the release channel) via `url` + https
-  sources — anonymous-clone friendly; the `github` source type requires SSH keys.
+- Entries target each plugin repo's `main` branch (the release channel) via `url` + https
+  sources — anonymous-clone friendly; the `github` *plugin-source* type requires SSH keys.
+  Note `ref: main` follows the branch; it is not a fixed commit, so what installs is
+  whatever `main` holds at clone time.
 - The praxen repo still hosts a **separate, praxen-only** marketplace under the same
   registered name, serving installs added from `open-agent-ai-security/praxen` before this
   catalog existed. It follows praxen's own conventions (relative `./` source, version
   fields) — it is *not* a copy of this file, and copying this file there would break
-  praxen's CI and the legacy install path. praxen's `marketplace-sync.yml` compares its
-  entry against this index one-way; there is no sync check in this repo.
-- `main` is protected: changes land by PR with a required approval, CI sanity-checks the
-  manifest (`scripts/validate_catalog.py`, run from `main` so a PR can't weaken its own
-  gate), and `.github/CODEOWNERS` requires an owner's review on the manifest, the
-  validator, and workflows.
+  praxen's CI and the legacy install path. A one-way drift check
+  (`marketplace-sync.yml` + `check_marketplace_mirror.py`, currently on praxen's `dev` and
+  reaching `main` with the 1.2 release) compares praxen's entry against this index; there
+  is no check in this repo, and nothing checks the socxen entry.
+- `main` is protected: changes land by PR with a required approval, and CI validates the
+  manifest with **main's** copy of `scripts/validate_catalog.py`, so a PR can't relax the
+  rules and repoint a source in one change.
+  **Known gap:** on `pull_request` the workflow file itself comes from the PR, so a PR can
+  still edit the gate step. `.github/CODEOWNERS` exists to close this, but it only
+  auto-requests reviewers until **"Require review from Code Owners"** is enabled on the
+  branch protection rule — until then, treat a green `catalog` check as evidence about the
+  manifest, not proof the gate ran as written, and review diffs to `/.github/` and
+  `/scripts/` accordingly.
 
 ## License
 

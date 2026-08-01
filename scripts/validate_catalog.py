@@ -41,11 +41,23 @@ REPO_PATH_RE = re.compile(r"^/" + re.escape(ORG) + r"/([A-Za-z0-9._-]+)\.git$")
 PLUGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
+ALLOWED_SOURCE_KEYS = {"source", "url", "ref"}
+
+
 def check_source(label, src, entry_name, problems):
     """Fully validate a plugin source object. Adds to `problems`."""
     if not isinstance(src, dict):
         problems.append(f"{label}: source must be an object, got {type(src).__name__}")
         return
+    # Allow-list the keys: the client schema understands fields this validator
+    # doesn't (e.g. `path` for a subdirectory), and an unreviewed field is an
+    # install-behaviour change slipping past a green check.
+    extra = sorted(set(src) - ALLOWED_SOURCE_KEYS)
+    if extra:
+        problems.append(
+            f"{label}: unexpected source key(s) {extra} — this catalog only uses "
+            f"{sorted(ALLOWED_SOURCE_KEYS)}; add support deliberately if a new field is needed"
+        )
     if src.get("source") != "url":
         problems.append(
             f"{label}: source.source must be 'url' (the 'github' type clones over SSH "
@@ -54,6 +66,10 @@ def check_source(label, src, entry_name, problems):
     url = src.get("url")
     if not isinstance(url, str) or not url:
         problems.append(f"{label}: source.url must be a non-empty string, got {url!r}")
+    elif any(c.isspace() or ord(c) < 0x20 for c in url):
+        # urlsplit silently strips tabs/newlines, so a URL containing them parses
+        # as something other than what a reader (or another tool) sees.
+        problems.append(f"{label}: source.url contains whitespace or control characters: {url!r}")
     else:
         parts = urlsplit(url)
         # Parse, don't prefix-match: '.../open-agent-ai-security/../other/x.git'
@@ -73,7 +89,7 @@ def check_source(label, src, entry_name, problems):
                 f"{label}: source.url path must be exactly "
                 f"'/{ORG}/<repo>.git', got {parts.path!r}"
             )
-        elif entry_name and m.group(1) != entry_name:
+        elif entry_name and m.group(1).lower() != entry_name.lower():
             problems.append(
                 f"{label}: entry name {entry_name!r} does not match target repository "
                 f"{m.group(1)!r} — an entry must not publish another repo under its key"
@@ -152,7 +168,7 @@ def main() -> int:
         return 1
     print(
         f"catalog manifest OK — {len(plugins)} plugin(s); every source is an https "
-        f"github.com/{ORG}/<name>.git URL pinned to {EXPECTED_REF}, with no version metadata."
+        f"github.com/{ORG}/<name>.git URL on the {EXPECTED_REF} branch, with no version metadata."
     )
     return 0
 
