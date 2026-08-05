@@ -12,6 +12,12 @@ user. The rules below are therefore a SECURITY gate, not a style check:
     in full, never prefix-matched (a bare `startswith` is defeated by
     `https://github.com/open-agent-ai-security/../attacker/repo.git`, which
     git silently normalizes to another org);
+  - source type is 'url' (whole repo) or 'git-subdir' (a subdirectory of the
+    repo — used when a plugin ships only part of its repo, e.g. socxen#66's
+    plugin/ payload split). 'git-subdir' additionally requires `path`: a
+    strictly relative, traversal-free directory path — segments of
+    [A-Za-z0-9._-] only, no leading/trailing '/', no '.' or '..' segments,
+    no backslashes, no whitespace/control characters;
   - every source pins `ref: main` (each product repo's release channel);
   - the entry name matches the target repository name, so an entry can't
     install one plugin under another's key;
@@ -41,7 +47,17 @@ REPO_PATH_RE = re.compile(r"^/" + re.escape(ORG) + r"/([A-Za-z0-9._-]+)\.git$")
 PLUGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
-ALLOWED_SOURCE_KEYS = {"source", "url", "ref"}
+# Per-type key allow-lists: an unreviewed field is an install-behaviour change
+# slipping past a green check, so each source type admits exactly its own keys.
+ALLOWED_SOURCE_KEYS_BY_TYPE = {
+    "url": {"source", "url", "ref"},
+    "git-subdir": {"source", "url", "ref", "path"},
+}
+# Subdirectory path: strictly relative, one or more [A-Za-z0-9._-] segments,
+# '/'-joined. No leading/trailing slash, no empty segments, no backslashes.
+# '.'/'..' segments are matchable by the segment class, so they are rejected
+# by an explicit check below — keep both in sync.
+SUBDIR_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 
 
 def check_source(label, src, entry_name, problems):
@@ -49,20 +65,46 @@ def check_source(label, src, entry_name, problems):
     if not isinstance(src, dict):
         problems.append(f"{label}: source must be an object, got {type(src).__name__}")
         return
-    # Allow-list the keys: the client schema understands fields this validator
-    # doesn't (e.g. `path` for a subdirectory), and an unreviewed field is an
-    # install-behaviour change slipping past a green check.
-    extra = sorted(set(src) - ALLOWED_SOURCE_KEYS)
+    stype = src.get("source")
+    if stype not in ALLOWED_SOURCE_KEYS_BY_TYPE:
+        problems.append(
+            f"{label}: source.source must be 'url' (whole repo) or 'git-subdir' "
+            f"(subdirectory; the 'github' type clones over SSH and fails for users "
+            f"without GitHub SSH keys), got {stype!r}"
+        )
+        allowed = set().union(*ALLOWED_SOURCE_KEYS_BY_TYPE.values())
+    else:
+        allowed = ALLOWED_SOURCE_KEYS_BY_TYPE[stype]
+    extra = sorted(set(src) - allowed)
     if extra:
         problems.append(
-            f"{label}: unexpected source key(s) {extra} — this catalog only uses "
-            f"{sorted(ALLOWED_SOURCE_KEYS)}; add support deliberately if a new field is needed"
+            f"{label}: unexpected source key(s) {extra} for source type {stype!r} — "
+            f"this type admits exactly {sorted(allowed)}; add support deliberately "
+            f"if a new field is needed"
         )
-    if src.get("source") != "url":
-        problems.append(
-            f"{label}: source.source must be 'url' (the 'github' type clones over SSH "
-            f"and fails for users without GitHub SSH keys), got {src.get('source')!r}"
-        )
+    if stype == "git-subdir":
+        path = src.get("path")
+        if not isinstance(path, str) or not path:
+            problems.append(
+                f"{label}: git-subdir requires a non-empty string 'path', got {path!r}"
+            )
+        elif any(c.isspace() or ord(c) < 0x20 for c in path):
+            problems.append(
+                f"{label}: source.path contains whitespace or control characters: {path!r}"
+            )
+        elif "\\" in path:
+            problems.append(f"{label}: source.path must use forward slashes only: {path!r}")
+        elif not SUBDIR_SEGMENT_RE.match(path):
+            problems.append(
+                f"{label}: source.path must be a relative directory path of "
+                f"[A-Za-z0-9._-] segments (no leading/trailing '/', no empty "
+                f"segments), got {path!r}"
+            )
+        elif any(seg in (".", "..") for seg in path.split("/")):
+            problems.append(
+                f"{label}: source.path must not contain '.' or '..' segments "
+                f"(directory traversal), got {path!r}"
+            )
     url = src.get("url")
     if not isinstance(url, str) or not url:
         problems.append(f"{label}: source.url must be a non-empty string, got {url!r}")
