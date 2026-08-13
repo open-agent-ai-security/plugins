@@ -7,6 +7,6 @@
 # plugin source together. Requires "Require review from Code Owners" on the
 # main branch protection rule.
 
-/.claude-plugin/  @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO
-/scripts/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO
-/.github/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO
+/.claude-plugin/  @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO @mattwillems-exabeam
+/scripts/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO @mattwillems-exabeam
+/.github/         @virtualsteve-exa @mike-machnik-exa @scottcexab @SarahFishCO @mattwillems-exabeam
