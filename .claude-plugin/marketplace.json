@@ -29,10 +29,10 @@
       "name": "praxen-beta",
       "source": {
         "source": "url",
-        "url": "https://github.com/open-agent-ai-security/praxen.git",
-        "ref": "v2-beta"
+        "url": "https://github.com/open-agent-ai-security/praxen-beta.git",
+        "ref": "main"
       },
-      "description": "Praxen 2.0 BETA — pre-release channel tracking the v2-beta branch (evidence-derived threat modeling). Installs in place of the production praxen plugin; reinstall praxen to return to stable. Beta docs: https://open-agent-ai-security.github.io/praxen/beta/",
+      "description": "Praxen 2.0 BETA — pre-release channel served from the praxen-beta mirror repo (tracks praxen's v2-beta branch; evidence-derived threat modeling). Installs in place of the production praxen plugin; reinstall praxen to return to stable. Beta docs: https://open-agent-ai-security.github.io/praxen/beta/",
       "license": "Apache-2.0",
       "keywords": [
         "agent-behavior-verifier",
