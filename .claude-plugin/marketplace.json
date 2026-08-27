@@ -33,7 +33,7 @@
         "ref": "main",
         "path": "plugin"
       },
-      "description": "socxen — agentic SOC analyst. Triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP: gathers evidence, correlates activity, reaches a threat/false-positive verdict, and acts — containment recommended for human approval, and dismiss/close gated by Claude Code permission rules.",
+      "description": "socxen — agentic SOC analyst for Claude Code and OpenAI Codex. Triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP: gathers evidence, correlates activity, reaches a threat/false-positive verdict, and acts — containment recommended for human approval, and dismiss/close gated by the host agent's tool-approval rules.",
       "license": "Apache-2.0",
       "keywords": [
         "soc",
@@ -41,7 +41,8 @@
         "alert-triage",
         "exabeam",
         "ai-agent-security",
-        "mcp"
+        "mcp",
+        "codex"
       ],
       "category": "security"
     }
