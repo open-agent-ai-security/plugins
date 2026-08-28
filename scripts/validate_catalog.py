@@ -18,9 +18,16 @@ user. The rules below are therefore a SECURITY gate, not a style check:
     strictly relative, traversal-free directory path — segments of
     [A-Za-z0-9._-] only, no leading/trailing '/', no '.' or '..' segments,
     no backslashes, no whitespace/control characters;
-  - every source pins `ref: main` (each product repo's release channel);
-  - the entry name matches the target repository name, so an entry can't
-    install one plugin under another's key;
+  - alternatively, a source may be a STRING relative path ('./<dir>'): a
+    plugin vendored into THIS repo, so installs copy only that directory
+    and every payload change is a reviewable diff here rather than a ref
+    move in another repo. The path takes the same traversal-free rules as
+    git-subdir, the directory must exist and carry .claude-plugin/plugin.json,
+    and that manifest's `name` must equal the entry name (the client keys the
+    install by it — a mismatch shadows another plugin's key);
+  - every git source pins `ref: main` (each product repo's release channel);
+  - for git sources, the entry name matches the target repository name, so
+    an entry can't install one plugin under another's key;
   - entries carry no per-release version metadata (each plugin repo's
     plugin.json is the version authority);
   - names/descriptions are well-formed strings the client schema accepts.
@@ -60,8 +67,59 @@ ALLOWED_SOURCE_KEYS_BY_TYPE = {
 SUBDIR_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 
 
+def check_vendored_source(label, src, entry_name, problems):
+    """Validate a string source: a plugin directory vendored into this repo."""
+    if not src.startswith("./"):
+        problems.append(
+            f"{label}: a string source must be a repo-relative path starting "
+            f"with './' (a vendored plugin directory in this repo), got {src!r}"
+        )
+        return
+    rel = src[2:]
+    if any(c.isspace() or ord(c) < 0x20 for c in rel):
+        problems.append(f"{label}: source path contains whitespace or control characters: {src!r}")
+        return
+    if "\\" in rel:
+        problems.append(f"{label}: source path must use forward slashes only: {src!r}")
+        return
+    if not SUBDIR_SEGMENT_RE.match(rel) or any(seg in (".", "..") for seg in rel.split("/")):
+        problems.append(
+            f"{label}: source path must be './' plus [A-Za-z0-9._-] segments with "
+            f"no '.' or '..' segments (directory traversal), got {src!r}"
+        )
+        return
+    plugin_dir = MANIFEST.parents[1] / rel
+    if not plugin_dir.is_dir():
+        problems.append(f"{label}: vendored source directory {src!r} does not exist in this repo")
+        return
+    manifest = plugin_dir / ".claude-plugin" / "plugin.json"
+    try:
+        pj = json.loads(manifest.read_text())
+    except FileNotFoundError:
+        problems.append(f"{label}: vendored plugin at {src!r} is missing .claude-plugin/plugin.json")
+        return
+    except Exception as e:
+        problems.append(f"{label}: vendored plugin.json at {src!r} does not parse: {e}")
+        return
+    pj_name = pj.get("name") if isinstance(pj, dict) else None
+    if entry_name and pj_name != entry_name:
+        problems.append(
+            f"{label}: vendored plugin.json name {pj_name!r} does not match the entry "
+            f"name — the client keys the install by plugin.json's name, so a mismatch "
+            f"installs under (or shadows) another plugin's key"
+        )
+    if isinstance(pj, dict) and not (isinstance(pj.get("version"), str) and pj["version"].strip()):
+        problems.append(
+            f"{label}: vendored plugin.json must declare a non-empty version — "
+            f"with no source repo to consult, it is the only version authority"
+        )
+
+
 def check_source(label, src, entry_name, problems):
-    """Fully validate a plugin source object. Adds to `problems`."""
+    """Fully validate a plugin source (object, or vendored-path string). Adds to `problems`."""
+    if isinstance(src, str):
+        check_vendored_source(label, src, entry_name, problems)
+        return
     if not isinstance(src, dict):
         problems.append(f"{label}: source must be an object, got {type(src).__name__}")
         return
@@ -210,7 +268,8 @@ def main() -> int:
         return 1
     print(
         f"catalog manifest OK — {len(plugins)} plugin(s); every source is an https "
-        f"github.com/{ORG}/<name>.git URL on the {EXPECTED_REF} branch, with no version metadata."
+        f"github.com/{ORG}/<name>.git URL on the {EXPECTED_REF} branch or a vendored "
+        f"'./<dir>' in this repo, with no entry-level version metadata."
     )
     return 0
 
