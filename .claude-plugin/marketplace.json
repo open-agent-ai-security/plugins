@@ -15,7 +15,7 @@
         "url": "https://github.com/open-agent-ai-security/praxen.git",
         "ref": "main"
       },
-      "description": "Praxen \u2014 agent behavior verifier. Compares an agent's declared policy against the available evidence (source, deployment state, or behavioral artifacts); reports where observed behavior diverges from declared intent.",
+      "description": "Praxen — agent behavior verifier. Compares an agent's declared policy against the available evidence (source, deployment state, or behavioral artifacts); reports where observed behavior diverges from declared intent.",
       "license": "Apache-2.0",
       "keywords": [
         "agent-behavior-verifier",
@@ -28,7 +28,7 @@
     {
       "name": "praxen-beta",
       "source": "./praxen-beta",
-      "description": "Praxen 2.0 BETA (threat modeling) - pre-release test channel, vendored payload. Installs side by side with production praxen under its own key; disable production praxen while testing. Docs: https://open-agent-ai-security.github.io/praxen/beta/",
+      "description": "Praxen 2.0 BETA (threat modeling) — pre-release test channel, vendored payload. Installs side by side with production praxen under its own key; disable production praxen while testing. Docs: https://open-agent-ai-security.github.io/praxen/beta/",
       "license": "Apache-2.0",
       "keywords": [
         "agent-behavior-verifier",
@@ -48,7 +48,7 @@
         "ref": "main",
         "path": "plugin"
       },
-      "description": "socxen \u2014 agentic SOC analyst. Triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP: gathers evidence, correlates activity, reaches a threat/false-positive verdict, and acts \u2014 containment recommended for human approval, and dismiss/close gated by Claude Code permission rules.",
+      "description": "socxen — agentic SOC analyst. Triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP: gathers evidence, correlates activity, reaches a threat/false-positive verdict, and acts — containment recommended for human approval, and dismiss/close gated by Claude Code permission rules.",
       "license": "Apache-2.0",
       "keywords": [
         "soc",
