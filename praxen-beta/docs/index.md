@@ -1,0 +1,88 @@
+<!--
+  Copyright 2026 Exabeam, Inc.
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+# Praxen Documentation
+
+**Praxen** is the open-source reference implementation of **[Agent Behavior Verification (ABV)](abv.md)** — a proactive control model for AI agents and digital workers. It compares an AI agent's declared policy (a Worker Remit) against whatever evidence is available about that agent — source code, live deployment state, behavioral artifacts, governance docs, or any mix — and reports where observed behavior diverges from declared intent.
+
+> *Make sure your agent does its job — and only its job.*
+
+*Praxen is a project sponsored by [Exabeam](https://www.exabeam.com/).*
+
+## Where to start
+
+| If you are… | Read this first |
+|---|---|
+| New to the concept and want the "why" | [What is Agent Behavior Verification?](abv.md) |
+| Setting up Praxen for the first time | [Installation](installation.md) |
+| Trying it out for the first time | [Quickstart](quickstart.md) — have Claude author a remit for the FinBot demo agent, scan it, and read the report, in about 15 minutes |
+| Ready to run your first real analysis | [Usage](usage.md) |
+| Writing a Worker Remit for an agent | [Writing Worker Remits](writing-remits.md) |
+| Looking at a report and trying to understand it | [Interpreting Reports](interpreting-reports.md) |
+| Disagreeing with a finding or wanting to revise it | [Challenging and Revising Findings](challenging-findings.md) |
+| Wondering why two runs gave slightly different scores | [Understanding Run-to-Run Variability](understanding-variability.md) |
+| Running a scan where a miss would be expensive | [Thinking Modes](thinking-modes.md) — the **high** and **x-high** effort levels |
+| Wanting the architecture view — trust boundaries and attack paths | [Threat Modeling](threat-modeling.md) — an evidence-derived threat model where every element cites file:line |
+| Getting the most out of a Praxen report | [Working with Praxen](#working-with-praxen) |
+| Hit a problem on a first run | [Usage § Troubleshooting](usage.md#troubleshooting) |
+| Trying to understand the OWASP frameworks Praxen tags against | [OWASP Gen AI Security](owasp.md) |
+| Trying to understand the RAISE maturity scoring | [The RAISE Framework](RAISE.md) |
+
+## How Praxen works (in 90 seconds)
+
+Praxen reduces agent verification to a single comparison:
+
+1. **You declare what the agent is supposed to do** in a [Worker Remit](writing-remits.md). This is the only artifact you customize per agent.
+2. **You point Praxen at evidence about the agent** — its source code, live deployment files, conversation logs, or any combination.
+3. **Praxen reads, compares, reports.** Every finding traces to a specific rule in the Worker Remit it violates, with evidence cited from the input.
+
+```mermaid
+flowchart LR
+  WR["Worker Remit<br/>(declared policy)"] --> P{{"behavior-verifier<br/>skill"}}
+  EV["Evidence<br/>(source · deployment · behavior · governance)"] --> P
+  P --> JSON["findings.json<br/>(canonical)"]
+  JSON --> R["render.py"]
+  R --> HTML["analysis.html"]
+  R --> TXT["analysis.txt"]
+```
+
+The output is a self-contained HTML analysis report, a machine-readable findings JSON, and a plain-text summary. Open the HTML in a browser; ingest the JSON in your pipeline.
+
+## Working with Praxen
+
+Praxen produces an **expert review that focuses human attention.** Each report is a model-assisted analysis of where an agent's behavior may diverge from its remit. Treat the findings and RAISE maturity score as judgments to act on — a senior reviewer's notes, not an automated pass/fail. Scores are calibrated per model tier and vary run to run (see [Understanding Run-to-Run Variability](understanding-variability.md)), and you can [challenge and revise any finding](challenging-findings.md).
+
+Praxen works by **reading your agent's real workspace in place** — its actual code, config, and logs. It writes findings only to `./reports/` and never modifies the agent. It runs as a skill inside your coding agent, using that agent's own tools rather than a separate sandbox, so run Praxen where you already trust that agent to operate. The [security model and assumptions](../SECURITY.md#security-model-and-assumptions) covers this in full.
+
+## Four input shapes
+
+Praxen is **not just a source-code analyzer.** Any of these — alone or in combination — are valid input:
+
+- **Source repository** — a project directory, GitHub repo, or plugin source tree.
+- **Running deployment** — live memory and bootstrap files (`MEMORY.md`, `SOUL.md`), operational logs (action reports, session JSONL, audit trails, escalation logs), live config.
+- **Behavioral artifacts** — chat transcripts, email histories, conversation logs, decision records.
+- **Governance & methodology docs** — red-team reports, existing threat models, runbooks, incident retrospectives, dependency-management policy. These feed the maturity-oriented RAISE categories (Build an AI Red Team, Monitor Continuously, Manage Your Supply Chain) that source code alone can't speak to.
+
+The methodology adapts. Categories the input doesn't cover are scored at lower confidence and explicitly noted in the report. See [Usage](usage.md) for how to point Praxen at each type.
+
+## Frameworks
+
+Every finding Praxen produces is classified against four industry-standard frameworks simultaneously:
+
+- **OWASP Top 10 for LLM Applications 2026** — `LLM01`–`LLM10` tags
+- **OWASP Top 10 for Agentic AI Applications 2026** — `ASI01`–`ASI10` tags
+- OWASP's **A Practical Guide for Secure MCP Server Development 2026** — applied when MCP configuration is found
+- **RAISE Framework** — six-category 0–5 maturity score; see [RAISE](RAISE.md)
+
+For an overview of the OWASP Gen AI Security Project and a one-line gloss on each LLM, Agentic, and MCP risk, see [OWASP Gen AI Security](owasp.md). Or browse the **[live OWASP Coverage Report](https://open-agent-ai-security.github.io/praxen/tests/baselines/owasp-coverage-report.html)** — aggregate LLM and Agentic Top-10 coverage across Praxen's example suite, with links into each per-target analysis.
+
+## Quick reference
+
+- Install: `claude plugin marketplace add open-agent-ai-security/plugins` then `claude plugin install praxen-beta@open-agent-ai-security` (or the in-session `/plugin ...` equivalents — see [Installation](installation.md))
+- Skill name: `behavior-verifier`
+- Output directory: `./reports/` relative to where you run the analysis
+- Output files: `<agent-slug>-analysis-<timestamp>.html`, `<agent-slug>-findings-<date>.json`, `<agent-slug>-analysis-<timestamp>.txt`; ask for a [threat model](threat-modeling.md) and `<agent-slug>-threatmodel-<timestamp>.json` / `.html` land beside them
+
+For the full specification, see [`PRAXEN_SPEC.md`](../PRAXEN_SPEC.md) at the repo root.
