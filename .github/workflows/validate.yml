@@ -44,7 +44,12 @@ jobs:
           fi
           echo "::notice::validating with the ruleset from origin/main"
           cp .claude-plugin/marketplace.json "$RUNNER_TEMP/.claude-plugin/marketplace.json"
-          python3 "$RUNNER_TEMP/gate/validate_catalog.py"
+          # CATALOG_ROOT points the relocated validator back at this checkout,
+          # so vendored './<dir>' sources are checked against the PR's actual
+          # tree (the temp-dir copy holds only the manifest). Validators that
+          # predate the override ignore it and read the temp-dir manifest copy
+          # — same bytes either way.
+          CATALOG_ROOT="$GITHUB_WORKSPACE" python3 "$RUNNER_TEMP/gate/validate_catalog.py"
       - name: Re-run with this branch's validator (advisory only)
         if: always()
         continue-on-error: true

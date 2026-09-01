@@ -18,9 +18,18 @@ user. The rules below are therefore a SECURITY gate, not a style check:
     strictly relative, traversal-free directory path — segments of
     [A-Za-z0-9._-] only, no leading/trailing '/', no '.' or '..' segments,
     no backslashes, no whitespace/control characters;
-  - every source pins `ref: main` (each product repo's release channel);
-  - the entry name matches the target repository name, so an entry can't
-    install one plugin under another's key;
+  - alternatively, a source may be a STRING relative path ('./<dir>'): a
+    plugin vendored into THIS repo, so installs copy only that directory
+    and every payload change is a reviewable diff here rather than a ref
+    move in another repo. The path takes the same traversal-free rules as
+    git-subdir, the directory must exist, resolve under the repo root, and
+    contain no symlinks anywhere (the reviewed tree and the installed tree
+    must be the same bytes), it must carry .claude-plugin/plugin.json, and
+    that manifest's `name` must equal the entry name (the client keys the
+    install by it — a mismatch shadows another plugin's key);
+  - every git source pins `ref: main` (each product repo's release channel);
+  - for git sources, the entry name matches the target repository name, so
+    an entry can't install one plugin under another's key;
   - entries carry no per-release version metadata (each plugin repo's
     plugin.json is the version authority);
   - names/descriptions are well-formed strings the client schema accepts.
@@ -33,12 +42,19 @@ about.
 Exit 0 clean, 1 with findings (always a findings list, never a traceback).
 """
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-MANIFEST = Path(__file__).resolve().parents[1] / ".claude-plugin" / "marketplace.json"
+# Repo root. CATALOG_ROOT exists for the CI gate, which runs MAIN's copy of
+# this script from a temp dir against the PR's checkout — without the
+# override, vendored-source directory checks would resolve against the temp
+# dir and fail closed on every vendored entry (including post-merge pushes
+# to main). Unset, the script behaves as before: root = its own repo.
+ROOT = Path(os.environ.get("CATALOG_ROOT") or Path(__file__).resolve().parents[1]).resolve()
+MANIFEST = ROOT / ".claude-plugin" / "marketplace.json"
 
 MARKETPLACE_NAME = "open-agent-ai-security"
 ORG = "open-agent-ai-security"
@@ -60,10 +76,91 @@ ALLOWED_SOURCE_KEYS_BY_TYPE = {
 SUBDIR_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 
 
+def check_vendored_source(label, src, entry_name, problems):
+    """Validate a string source: a plugin directory vendored into this repo."""
+    if not src.startswith("./"):
+        problems.append(
+            f"{label}: a string source must be a repo-relative path starting "
+            f"with './' (a vendored plugin directory in this repo), got {src!r}"
+        )
+        return
+    rel = src[2:]
+    if any(c.isspace() or ord(c) < 0x20 for c in rel):
+        problems.append(f"{label}: source path contains whitespace or control characters: {src!r}")
+        return
+    if "\\" in rel:
+        problems.append(f"{label}: source path must use forward slashes only: {src!r}")
+        return
+    if not SUBDIR_SEGMENT_RE.match(rel) or any(seg in (".", "..") for seg in rel.split("/")):
+        problems.append(
+            f"{label}: source path must be './' plus [A-Za-z0-9._-] segments with "
+            f"no '.' or '..' segments (directory traversal), got {src!r}"
+        )
+        return
+    plugin_dir = ROOT / rel
+    if not plugin_dir.exists():
+        problems.append(f"{label}: vendored source directory {src!r} does not exist in this repo")
+        return
+    if not plugin_dir.is_dir():
+        problems.append(f"{label}: vendored source path {src!r} exists but is not a directory")
+        return
+    # The lexical checks above can't see through symlinks: a committed symlink
+    # passes them while pointing anywhere on the validating host, so what got
+    # reviewed and what gets installed could differ. Reject any symlink in the
+    # payload, and require the directory itself to resolve under the repo root.
+    if plugin_dir.is_symlink() or not plugin_dir.resolve().is_relative_to(ROOT):
+        problems.append(
+            f"{label}: vendored source directory {src!r} is a symlink or escapes "
+            f"the repo root once resolved"
+        )
+        return
+    links = sorted(str(p.relative_to(ROOT)) for p in plugin_dir.rglob("*") if p.is_symlink())
+    if links:
+        shown = ", ".join(links[:3]) + (", …" if len(links) > 3 else "")
+        problems.append(
+            f"{label}: vendored payload contains symlink(s) ({shown}) — the reviewed "
+            f"tree and the installed tree must be the same bytes"
+        )
+        return
+    manifest = plugin_dir / ".claude-plugin" / "plugin.json"
+    try:
+        pj = json.loads(manifest.read_text())
+    except FileNotFoundError:
+        problems.append(f"{label}: vendored plugin at {src!r} is missing .claude-plugin/plugin.json")
+        return
+    except Exception as e:
+        problems.append(f"{label}: vendored plugin.json at {src!r} does not parse: {e}")
+        return
+    if not isinstance(pj, dict):
+        problems.append(
+            f"{label}: vendored plugin.json at {src!r} must be a JSON object, "
+            f"got {type(pj).__name__}"
+        )
+        return
+    pj_name = pj.get("name")
+    if entry_name and pj_name != entry_name:
+        problems.append(
+            f"{label}: vendored plugin.json name {pj_name!r} does not match the entry "
+            f"name — the client keys the install by plugin.json's name, so a mismatch "
+            f"installs under (or shadows) another plugin's key"
+        )
+    if not (isinstance(pj.get("version"), str) and pj["version"].strip()):
+        problems.append(
+            f"{label}: vendored plugin.json must declare a non-empty version — "
+            f"with no source repo to consult, it is the only version authority"
+        )
+
+
 def check_source(label, src, entry_name, problems):
-    """Fully validate a plugin source object. Adds to `problems`."""
+    """Fully validate a plugin source (object, or vendored-path string). Adds to `problems`."""
+    if isinstance(src, str):
+        check_vendored_source(label, src, entry_name, problems)
+        return
     if not isinstance(src, dict):
-        problems.append(f"{label}: source must be an object, got {type(src).__name__}")
+        problems.append(
+            f"{label}: source must be an object (git source) or a './<dir>' string "
+            f"(vendored plugin), got {type(src).__name__}"
+        )
         return
     stype = src.get("source")
     if stype not in ALLOWED_SOURCE_KEYS_BY_TYPE:
@@ -210,7 +307,8 @@ def main() -> int:
         return 1
     print(
         f"catalog manifest OK — {len(plugins)} plugin(s); every source is an https "
-        f"github.com/{ORG}/<name>.git URL on the {EXPECTED_REF} branch, with no version metadata."
+        f"github.com/{ORG}/<name>.git URL on the {EXPECTED_REF} branch or a vendored "
+        f"'./<dir>' in this repo, with no entry-level version metadata."
     )
     return 0
 
