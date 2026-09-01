@@ -26,6 +26,21 @@
       "category": "security"
     },
     {
+      "name": "praxen-beta",
+      "source": "./praxen-beta",
+      "description": "Praxen 2.0 BETA (threat modeling) — pre-release test channel, vendored payload. Installs side by side with production praxen under its own key; disable production praxen while testing. Docs: https://open-agent-ai-security.github.io/praxen/beta/",
+      "license": "Apache-2.0",
+      "keywords": [
+        "agent-behavior-verifier",
+        "ai-agent-security",
+        "raise-framework",
+        "owasp",
+        "beta",
+        "threat-modeling"
+      ],
+      "category": "security"
+    },
+    {
       "name": "socxen",
       "source": {
         "source": "git-subdir",

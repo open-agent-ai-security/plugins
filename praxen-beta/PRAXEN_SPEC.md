@@ -1,0 +1,512 @@
+<!--
+  Copyright 2026 Exabeam, Inc.
+  SPDX-License-Identifier: Apache-2.0
+-->
+
+# Praxen — Specification
+
+**Version:** 2.0.0-beta.1
+**Status:** Public release (1.0 GA)
+**Tagline:** *Make sure your agent does its job — and only its job.*
+
+---
+
+## 1. Purpose
+
+**Praxen** is an **agent behavior verifier**. It compares an AI agent's declared policy (its Worker Remit) against whatever evidence is available about that agent and answers a single question:
+
+**Is what the agent actually does, has done, or is configured to do aligned with its authorized policy?** (intended vs observed behavior)
+
+Praxen is **not limited to source code.** Four input shapes are first-class:
+
+- **Source repository** — code, configs, skill files, prompts, dependencies. Reveals what the agent is *configured* to do.
+- **Running deployment** — live memory files, action logs, configuration files, postmortems pulled from a deployed instance. Reveals what the agent *has done* and the current operational state.
+- **Behavioral artifacts** — chat transcripts, email histories, conversation logs, decision records. Reveals what the agent *actually does* in practice — including subtle policy drift that no static analysis can see.
+- **Governance & methodology docs** — red-team reports, threat models, runbooks, incident retrospectives, dependency-management policy. Reveals the engineering *process* around the agent — feeding the maturity-oriented RAISE categories (Build an AI Red Team, Monitor Continuously, Manage Your Supply Chain) that code alone can't show.
+
+Most agent security failures trace to one of three causes: a misconfigured tool or unreviewed skill file (source); a policy that says one thing while live behavior does another (deployment); or a control that exists in policy but never fires when it should (behavior). Praxen reads whatever evidence is available, compares it to the Worker Remit, and writes findings to a local report. The methodology adapts: categories the input doesn't cover are scored at lower confidence and explicitly noted. Nothing phones home.
+
+The name reflects the mission. Praxen is not part of the agent. It is the observer.
+
+### Two-layer model
+
+| Layer | What it represents | Praxen's view |
+|-------|--------------------|----------------|
+| **Policy** | What the agent is authorized to be and do | Worker Remit |
+| **Capability** | What tools, channels, and permissions the agent actually has | The agent's workspace (code, config, dependencies) |
+
+The policy layer establishes intent. The capability layer is what's actually running. Praxen's job is to detect divergence between the two.
+
+---
+
+## 2. Design Principles
+
+### 2.1 Remit-first
+
+The Worker Remit is the source of truth for everything Praxen does. Every finding is measured against what the agent was authorized to be and do. Without a remit, Praxen cannot meaningfully evaluate the environment.
+
+### 2.2 Evidence-driven
+
+Every finding must cite specific evidence: a file path, a line number, a code pattern, a configuration value, an observed absence. Praxen does not assert risk — it observes, compares, and reports what it found and where.
+
+Every claim is tagged:
+- **Verified** — directly observed in an artifact that was read
+- **Inferred** — reasonable conclusion from indirect evidence
+- **Unknown** — no evidence available (absence of a control in a production system is itself a finding)
+
+A finding's evidence must cite **every mechanism in its causal chain**, not only the entry point and the outcome — the record is **closed under classification**, meaning a reader with the finding's evidence alone (not the codebase) can reach the correct taxonomy. A chain that runs through a store, scheduler, index, or subprocess cites that surface even when a different frame dominates the summary; otherwise the record silently loses any classification that depends on the omitted mechanism.
+
+### 2.3 Never reprint secrets
+
+Reports must never contain the literal value of a secret, credential, token, password, or private key — even when the source is already public, even when the value looks like a placeholder. Secrets are referred to by location and pattern only. See `skills/behavior-verifier/SKILL.md` for the full redaction rule.
+
+### 2.4 Least privilege
+
+Praxen is designed to operate read-only on the agent's workspace: the skill reads the agent's artifacts and writes output only to its own `./reports/` directory in the current working directory. It does not take action on behalf of the agent, and does not modify the agent's code, skill files, configuration, or dependencies. This is a behavioral contract of the skill's instructions, not a technical sandbox — Praxen runs with the coding agent's ordinary tool access (including Bash and Write), so the read-only posture is enforced by convention rather than by an isolation boundary. (This is the same declared-versus-enforced distinction Praxen itself flags when it scans other agents.)
+
+### 2.5 Separation
+
+Praxen is not part of the agent it scans. It runs as a separate coding-agent invocation with its own session and its own output paths. An agent that has been compromised has no ability to interfere with Praxen.
+
+### 2.6 No external dependencies required
+
+Praxen's hard dependencies are a coding agent — Claude Code or OpenAI Codex (with its API connection to the LLM) — and a Python 3 interpreter — **version 3.9 or newer**, standard library only, **no third-party packages to install** — used by the bundled report renderer. (3.9 is the macOS Command Line Tools system Python; 3.8 was dropped at v0.3.0, EOL since 2024-10-07.) Everything else is local. All findings are written to local files. The HTML report is served from the filesystem and requires no web server. There is no database, message queue, logging infrastructure, or cloud service.
+
+### 2.7 LLM-native logic
+
+Praxen does not encode detection logic as code rules. The skill file and knowledge base — the prompts — are the logic. This is intentional.
+
+The patterns worth catching do not reduce to enumerable rules. "This skill file quietly expands the agent's reach in a direction inconsistent with its remit" is a judgment call. Policy-implementation divergence — where a policy document says one thing and the running code does another — requires reading both and reasoning about whether they match. Traditional detection code cannot do this. An LLM can.
+
+The skill file gives the model a calibrated framework for these judgments — what signals matter, what they imply, how confident to be — without enumerating every case in advance.
+
+---
+
+## 3. Architecture
+
+```
+┌─────────────────────────────────────────┐
+│                 PRAXEN                  │
+│                                         │
+│  Invoked in your coding agent           │
+│  (reads behavior-verifier/SKILL.md)     │
+│                                         │
+│  reads: agent code, skills, tools,      │
+│  config, dependencies, policy docs,     │
+│  log files                              │
+│              │                          │
+│              ▼                          │
+│         Worker Remit                    │
+│    (the policy to compare against)      │
+│              │                          │
+│              ▼                          │
+│         Analysis                        │
+│  (RAISE scoring, remit audit, compound  │
+│   signal reasoning, OWASP classification)│
+│              │                          │
+│              ▼                          │
+│      Parser-grade draft manifest        │
+│  <agent-slug>-draft-<timestamp>.md      │
+│   (working artifact — Step 9.9)         │
+│              │                          │
+│              ▼                          │
+│  manifest_to_findings.py                │
+│   (deterministic, stdlib — Step 10)     │
+│              │                          │
+│              ▼                          │
+│      Canonical findings JSON            │
+│  <agent-slug>-findings-<date>.json      │
+│   (the complete record)                 │
+│              │                          │
+│              ▼                          │
+│  render.py  (deterministic, stdlib)     │
+│   <agent-slug>-analysis-<timestamp>.html│
+│   <agent-slug>-analysis-<timestamp>.txt │
+└─────────────────────────────────────────┘
+```
+
+Praxen runs once per invocation: the skill reads and analyzes the workspace, writes a parser-grade draft manifest, then chains two bundled deterministic Python scripts (`manifest_to_findings.py` translates the manifest into the canonical findings JSON; `render.py` turns that JSON into the HTML report and plain-text summary). Both scripts are pure standard library. No daemon, no scheduler, no persistent state between runs. If continuous analysis is desired, wrap the invocation in whatever scheduler the operator already uses (cron, launchd, CI, GitHub Action).
+
+---
+
+## 4. The Verifier
+
+### Invocation model
+
+Praxen is an agent skill, run by Claude Code or OpenAI Codex. The operator runs it by opening a session in their coding agent, in a directory containing the Praxen package, and asking the agent to read and execute `skills/behavior-verifier/SKILL.md`. Praxen is an on-demand tool — each invocation performs one full analysis and exits.
+
+**Thinking modes.** The invocation may name a higher **thinking mode** — the effort dial reasoning models expose, applied to a whole scan — **high** (scan → context-unaware findings audit → cleaned re-render, ~2× cost) or **x-high** (three independent scans → evidence adjudication → one super-run report, ~4–5× cost) — selected per-invocation in natural language, with no config file or standing state. Mode orchestration lives in `skills/behavior-verifier/THINKING_MODES.md`, read only when a mode is named; with no mode named the skill runs the standard single-scan pipeline unchanged.
+
+**Threat model.** The invocation may ask for a **threat model** — an evidence-derived architecture view (data-flow graph, trust boundaries, STRIDE×OWASP threat enumeration with confirmed / potential / partial / mitigated statuses, remit-rule overlay, attack paths), every element citing file:line evidence. One extraction pass (in our testing ~0.5–1× a standard scan's tokens, typically ~0.75×) against a completed analysis's artifacts produces a graph JSON conforming to `THREAT_MODEL_SPEC.md` (contract v1.4, validated by `threatmodel_schema.py`), rendered by `render_threatmodel.py` to a self-contained HTML report that shares the analysis report's brand chrome. Score-inert by construction: no finding, score, or analysis artifact changes, and no mode or standard scan is altered. Artifacts: `reports/<agent-slug>-threatmodel-<timestamp>.json` / `.html`; `analysis_ref` in the graph names the findings JSON it was built against. Modes add verification around the pipeline, never new findings or schema fields: final scores are re-derived from the adjudicated evidence — the audited finding set plus the maturity record and category evidence notes that the scoring step (SKILL.md 9.4) requires, since a finding set alone cannot see practice — raw artifacts are preserved alongside the final report, and every audit verdict is logged in a per-run adjudication record (`reports/<agent-slug>-adjudication-<timestamp>.md`).
+
+### Inputs
+
+| Input | Source |
+|-------|--------|
+| Worker Remit | `WORKER_REMIT.md` in the current directory or alongside the skill file |
+| Agent workspace | Path supplied by the operator at invocation time |
+| Knowledge base | `knowledge/` directory alongside the skill file |
+| Bundled scripts and template | `manifest_to_findings.py` (Step 10 converter), `render.py` (Step 11 renderer), `schema.py` (shared validator), `report_template.html` — all alongside the skill file in `skills/behavior-verifier/` |
+| Thinking-mode instructions | `THINKING_MODES.md` alongside the skill file — read only when the invocation names a high / x-high thinking mode |
+| Threat-model instructions and contract | `THREAT_MODEL.md` (orchestration, read only when a threat model is asked for), `THREAT_MODEL_SPEC.md` (graph contract v1.0), `threatmodel_schema.py` (validator), `render_threatmodel.py` (renderer) — alongside the skill file |
+
+### Outputs
+
+All written to `./reports/` relative to the current working directory. The directory is created if it does not exist.
+
+| Output | Filename | Produced by |
+|--------|----------|-------------|
+| Findings JSON | `<agent-slug>-findings-<YYYY-MM-DD>.json` | `manifest_to_findings.py`, Step 10 — translated mechanically from the Step 9.9 draft manifest |
+| HTML report | `<agent-slug>-analysis-<YYYY-MM-DD-HHMMSS>.html` | `render.py`, Step 11 — rendered from the JSON |
+| Plain-text summary | `<agent-slug>-analysis-<YYYY-MM-DD-HHMMSS>.txt` | `render.py`, Step 11 — rendered from the JSON |
+
+The **findings JSON is the canonical, complete record** of the analysis — everything the HTML shows is derived from it (§6). The HTML is a self-contained static page with inline CSS that renders correctly when opened as `file://` with no server. The `.txt` is a stdout-style summary. The renderer is deterministic: the same JSON always produces byte-identical HTML and TXT.
+
+### Artifact scope
+
+Praxen reads whatever evidence the operator can supply. This is not a description of the agent; it is the agent — observed in code, in deployment state, or in behavior.
+
+**Source-shape artifacts** (a repository or project directory):
+
+| Source | What it provides |
+|--------|-----------------|
+| Agent skill files and code | Logic the agent executes — the ground truth of what it is configured to do |
+| Tool and API definitions | Capabilities the agent can invoke and their parameters |
+| Policy and remit documents | What the agent is supposed to do — compared against what the code does |
+| Plugin manifests | Third-party components loaded at runtime |
+| Configuration files | Auth, endpoints, model selection, data access, approval policies |
+| Credential-adjacent files | Presence of plaintext secrets in unexpected locations |
+| Dependency and lock files | Library versions and provenance |
+
+**Deployment-shape artifacts** (live state pulled from a running agent):
+
+| Source | What it provides |
+|--------|-----------------|
+| Memory files (`MEMORY.md`, `SOUL.md`, daily memory logs) | The agent's evolving self-state; secondary system prompts loaded at startup |
+| Session-loaded files (`AGENTS.md`, `USER.md`, `IDENTITY.md`, etc.) | The runtime context surface — everything entering LLM context before the first user turn |
+| Action logs and event streams | Historical record of what the agent has actually done |
+| Postmortem and incident records | Documented past failures and the controls (or absence thereof) that allowed them |
+| Live configuration files | Operationally-effective settings (which may differ from defaults shipped in the repo) |
+
+**Behavioral-shape artifacts** (observed agent outputs):
+
+| Source | What it provides |
+|--------|-----------------|
+| Chat transcripts and conversation logs | Direct evidence of how the agent responds to requests — including subtle policy drift |
+| Email histories and message archives | Outbound-action record; visibility into what the agent has sent and to whom |
+| Decision and correction records | Reasoned-out judgment calls and lessons learned |
+
+**The remit, always:**
+
+| Source | What it provides |
+|--------|-----------------|
+| Worker Remit | The authoritative comparison baseline — declared policy against which all other evidence is evaluated |
+
+Praxen adapts to whatever combination of inputs is available. A repo-only analysis covers Manage Your Supply Chain comprehensively but cannot directly observe behavior. A behavior-only analysis covers Implement Zero Trust violations the agent demonstrably committed but cannot assess code quality. An analysis with multiple input shapes gets the most complete picture and the report's confidence levels are calibrated accordingly.
+
+### What it detects
+
+Praxen evaluates the workspace against the six RAISE categories and applies named detection patterns on top.
+
+**RAISE scoring** — each category 0–5 with a confidence level. Evidence is gathered during analysis (per-category assessment at Step 5, a twelve-question maturity-evidence lookup at Step 8b that records verified absences as well as practice), and the numbers are assigned late — at Step 9.4, from the committed evidence, not from a fresh workspace read — so a category reflects both its defects and its practised controls:
+
+| RAISE Category | Applied to agent environment |
+|----------------|------------------------------|
+| Limit Your Domain | Do skill files or tool definitions expand scope beyond the remit? |
+| Balance Your Knowledge Base | Are data sources vetted? Does external content enter the context unsanitized? |
+| Implement Zero Trust | Are inputs validated? Are outputs filtered? Is exec capability gated? |
+| Manage Your Supply Chain | Are dependencies pinned? Is model provenance known? Are plugins vetted? |
+| Build an AI Red Team | Is there evidence of adversarial testing? Do found issues lead to change? |
+| Monitor Continuously | Does the agent log its actions? Are logs structured for automated detection? |
+
+**Named detection patterns:**
+
+- **Policy-implementation divergence** — Praxen reads the remit and the code, inventories every actionable remit rule, and classifies each as Verified / Gap / Partial / Vague Policy / Enforcement Not Possible.
+- **Credential exposure in unexpected locations** — secrets in documentation, config snapshots, action logs, archive artifacts, or example files. (Reported by location and pattern only — never by value.)
+- **Planned-but-not-deployed controls** — design docs, TODOs, or architectural notes that describe controls which don't yet exist in the running code.
+- **Configuration gap detection** — exec auto-approval, disabled tool-loop detection, missing rate limits, absent logging, overly broad permission scopes.
+- **Secondary-prompt discovery** — session-loaded identity files (`SOUL.md`, `AGENTS.md`, `MEMORY.md`, …) are discovered and audited as system prompts.
+- **Declared-but-never-consulted config / secret** — a config value or secret that is declared or loaded but never actually read by the running code (a half-wired control).
+- **External value → filesystem path** — an identifier sourced from an external system's response (API reply, webhook, platform callback) used in path construction with no containment check: a path-traversal primitive, judged by the value's *source*, not its variable name.
+- **MCP server evaluation** — when MCP configs are discovered, the OWASP Secure MCP Server minimum-bar checklist is applied.
+- **Remit-delta analysis** — tools, channels, data sources, or outbound destinations present in code but absent from the remit's authorized lists.
+- **Compound signal reasoning** — individual findings that are moderate in isolation but form a critical chain in combination (e.g., external content entering context + auto-approved exec = one-hop external-input-to-shell).
+
+### Positive posture recognition
+
+Praxen reports what is working well, not only what is broken. Controls that are correctly implemented and verified during the analysis — specific remit rules, scoped credentials, evidence of adversarial testing, structured action logs, approval gates — are surfaced explicitly alongside findings. Operators need to know where they can rely on existing controls.
+
+---
+
+## 5. The Worker Remit
+
+The Worker Remit is a markdown file describing what the agent is authorized to be and do. It is the policy baseline Praxen compares the agent's actual code and configuration against.
+
+### The remit states policy. Praxen discovers implementation.
+
+The remit is a policy document, not a system description. It declares intent — what the agent is for, what it is forbidden to do, who it is authorized to communicate with, what requires approval. It does not need to list tool names, file paths, or framework versions — Praxen finds those by reading the code.
+
+### Required sections
+
+| Section | Purpose |
+|---------|---------|
+| Identity and mission | Establishes what the agent is for |
+| Authorized capabilities | Tools, data sources, outbound destinations |
+| Behavioral constraints | Must-always and must-never rules |
+| Authorized counterparties | Who the agent may talk to |
+| Human approval requirements | Actions that require sign-off |
+| Escalation and scope boundaries | Where the agent must halt or decline |
+
+A template, `WORKER_REMIT_template.md`, ships at the Praxen package root — write a remit from it by hand (the primary path), or have the skill help draft one.
+
+### Specificity requirement
+
+Policy rules must be specific enough to be verifiable. A rule that can't be checked can't be enforced.
+
+- **Too vague:** "Handle email appropriately" — no standard to compare code against.
+- **Specific enough:** "Message bodies must never be retrieved for senders not in the authorized counterparty list" — the model can read the trust-check implementation and verify the order of operations.
+
+The test: could Praxen read this rule, read the agent's code, and determine whether the code complies? If the rule is about what the agent *does* (not how it does it), it's the right kind of rule for a remit.
+
+A remit with vague rules produces Low-confidence findings across the board. A remit with specific, testable constraints produces High-confidence, actionable findings.
+
+---
+
+## 6. Canonical Findings JSON
+
+Every analysis emits one JSON file — the **canonical, complete record** of the analysis. It is produced deterministically by `manifest_to_findings.py` (Step 10), which translates the Step 9.9 parser-grade draft manifest into JSON; the HTML report and the `.txt` summary are then rendered deterministically from the JSON (§7). Downstream consumers (ticketing, dashboards, compliance pipelines, run-to-run diffing) ingest the JSON directly. It is a single top-level object — *not* a list — and the bundled `schema.py` validator, which both `manifest_to_findings.py` and `render.py` run, checks its shape, enumerations, and cross-field consistency; a manifest that produces a malformed JSON does not validate and the converter exits non-zero with the offending path. The same contract is published as a machine-readable JSON Schema at `skills/behavior-verifier/findings.schema.json` for downstream tooling.
+
+```json
+{
+  "schema_version": "3.0",
+  "praxen_version": "1.3.0",
+  "scan": {
+    "agent": "<agent name>",
+    "agent_slug": "<agent-slug>",
+    "scan_date": "<YYYY-MM-DD>",
+    "scan_timestamp": "<ISO 8601 UTC>",
+    "workspace": "<absolute path to the analyzed workspace>",
+    "artifact_count": "<int — workspace artifacts read>",
+    "remit_version": "<string, optional — the remit's own declared version; omitted when the remit declares none>"
+  },
+  "intro_band": {
+    "agent_remit_summary": "<2–4 sentences: what the remit says the agent is for; may contain <code>>",
+    "agent_structure_summary": "<2–4 sentences: what was observed in the workspace; may contain <code>>"
+  },
+  "behavior_summary": "<2–4 sentence dominant-pattern narrative; may contain <p> and <code>>",
+  "remit_coverage": {
+    "stat_counts": { "verified": "<int>", "gap": "<int>", "partial": "<int>", "vague": "<int>", "enp": "<int>", "total": "<int>" },
+    "rules": [
+      { "rule_id": "R-01", "section": "<remit section>", "rule_text": "<exact quoted rule>",
+        "status": "verified | gap | partial | vague | enp", "finding_id": "<PRAX-... or null>" }
+    ]
+  },
+  "findings": [
+    {
+      "id": "PRAX-YYYY-MM-DD-NNN",
+      "severity": "Critical | High | Medium | Low | Informational",
+      "summary": "<one sentence, specific — drives the finding-card header>",
+      "description": "<OPTIONAL — short paragraph of longer-form context; may contain inline <code>/<strong>/<em>. Carried in the JSON; the report card currently shows summary only — a future look-and-feel revisit may surface the description. Omit the field entirely if you have nothing to add beyond summary.>",
+      "tags": [
+        { "kind": "raise",         "label": "Implement Zero Trust" },
+        { "kind": "owasp_llm",     "label": "LLM01 — Prompt Injection" },
+        { "kind": "owasp_agentic", "label": "ASI01 — Agent Goal Hijack" }
+      ],
+      "policy_rule_ids": ["<R-NN id(s) violated, e.g. [\"R-03\"] or [\"R-03\", \"R-04\"]>"],
+      "policy_rule_text": ["<the exact quoted remit text, one element per id, element-aligned with policy_rule_ids>"],
+      "evidence": [
+        { "file": "<workspace-relative path>", "line": "<int or null>", "snippet": "<exact observation; never reprint secrets>" }
+      ],
+      "recommended_actions": [
+        "<concrete action: file to edit, config to change, control to add; may contain inline <code>>",
+        "<additional action if there are several; one-action findings get a single-item array>"
+      ],
+      "raise_category": "<one of the six RAISE keys>",
+      "owasp_llm": "<LLM01–LLM10 or null>",
+      "owasp_agentic": "<ASI01–ASI10 or null>",
+      "confidence": "High | Medium | Low",
+      "related_findings": ["<PRAX-... ids of related findings, or empty>"],
+      "escalation": "alert | log_only"
+    }
+  ],
+  "positives": [
+    { "title": "<short>", "description": "<1–2 sentences>", "evidence_path": "<file:line or config key>" }
+  ],
+  "log_files": {
+    "present": "<true | false>",
+    "no_logs_note": "<one sentence on the absence when present is false; may be empty otherwise>",
+    "rows": [
+      { "path": "<path>", "source": "<component>", "content_type": "<...>", "purpose": "<...>", "mtime": "<date or 'unknown'>", "status": "active | inferred" }
+    ]
+  },
+  "raise_posture": {
+    "weighted_overall": "<float 0.0–5.0 = Σ(score × weight) over scored categories ÷ Σ(their weights)>",
+    "weighted_rationale": "<2–4 sentences>",
+    "categories": [
+      { "key": "limit_your_domain",          "name": "Limit Your Domain",          "score": "<0–5|null>", "confidence": "High|Medium|Low", "weight": 0.15, "rationale": "<1–2 sentences>" },
+      { "key": "balance_your_knowledge_base", "name": "Balance Your Knowledge Base", "score": "<0–5|null>", "confidence": "...",            "weight": 0.15, "rationale": "..." },
+      { "key": "implement_zero_trust",        "name": "Implement Zero Trust",        "score": "<0–5|null>", "confidence": "...",            "weight": 0.25, "rationale": "..." },
+      { "key": "manage_your_supply_chain",    "name": "Manage Your Supply Chain",    "score": "<0–5|null>", "confidence": "...",            "weight": 0.15, "rationale": "..." },
+      { "key": "build_an_ai_red_team",        "name": "Build an AI Red Team",        "score": "<0–5>", "confidence": "...",            "weight": 0.15, "rationale": "..." },
+      { "key": "monitor_continuously",        "name": "Monitor Continuously",        "score": "<0–5>", "confidence": "...",            "weight": 0.15, "rationale": "..." }
+    ]
+  },
+  "footer": {
+    "severity_counts": { "critical": "<int>", "high": "<int>", "medium": "<int>", "low": "<int>", "info": "<int>" }
+  }
+}
+```
+
+**Invariants the validator enforces** (the renderer refuses to run otherwise):
+
+- `footer.severity_counts` matches the actual severities in `findings[]`; `remit_coverage.stat_counts` matches the actual statuses in `rules[]`, and `total` equals the number of rules.
+- Every non-null `rule.finding_id` exists in the `findings[]` id set; finding ids are unique.
+- `raise_posture.categories` is exactly the six RAISE keys, each with its standard weight (Zero Trust 0.25, the other five 0.15); `weighted_overall` equals Σ(score × weight) over the scored categories, divided by the sum of their weights, within rounding. A `null` score marks an N/A category (no applicable risk surface — permitted only for the four vector-scored categories, never Build an AI Red Team or Monitor Continuously): it is excluded from the weighted overall rather than counted as 0.
+- Severity, confidence, status, tag-kind, and log-status values are from their fixed enumerations.
+
+**Notes:**
+
+- The JSON holds **semantic data, not presentation** — `severity` is `"Critical"`, not a CSS class; `status` is `"gap"`, not a pill class; there are no pre-computed percentages or maturity labels. The renderer derives all presentation values.
+- `behavior_summary` carries the same narrative as the HTML report's Behavior Summary section; `weighted_overall` is the 0.0–5.0 RAISE posture scalar. Downstream consumers that want a human-readable synthesis or a single posture number read those fields directly — no HTML parsing needed.
+- `escalation` is `alert` for Critical/High, `log_only` for Medium/Low/Informational. `related_findings` lists the ids of findings that combine with this one (compound signal). Every finding that maps to a remit rule carries the exact quoted text in `policy_rule_text`, not just a section name.
+- `findings` may be empty (a genuinely clean agent); `positives` may be empty; `log_files.rows` is empty exactly when `present` is false.
+- **`evidence` is structured.** Each item is `{ file, line, snippet }`: `file` is a workspace-relative path (or workspace-relative identifier); `line` is an integer (1-indexed) or `null` for file-level evidence; `snippet` is the actual observation or quoted context. The renderer formats each item as `file:line — snippet` (or `file — snippet` when `line` is `null`). **`recommended_actions` is an array** of one or more concrete actions — the renderer renders single-item arrays as inline text and multi-item arrays as a bulleted list.
+- This is the **v3.0** schema, introduced with Praxen 1.2. Difference from v2.0: `policy_rule_ids` and `policy_rule_text` are now **parallel arrays** (element i of one is the id whose text is element i of the other), where 2.0 carried them as scalar strings (a single id string, and multiple rule texts joined with `" / "`). The array shape lets a finding's rule references be joined mechanically for scan-to-scan regression diffing and cross-checked against `remit_coverage.rules[]`, instead of parsed out of a delimiter-joined string. v2.0 (introduced at Praxen 0.3.0: structured `evidence`, array `recommended_actions`, optional `description`), v1.0, and the pre-0.2 bare-list format are all legacy — none is read by the current renderer, which validates `schema_version` `"3.0"` exactly.
+
+### Severity model
+
+| Severity | Definition |
+|----------|------------|
+| Critical | Immediate containment warranted. Clear policy violation, credential exposure, or unauthorized destructive capability. |
+| High | Significant risk requiring prompt review. Control absent where remit requires it, or compound signal chain to a high-impact action. |
+| Medium | Meaningful gap or anomaly requiring scheduled review. |
+| Low | Weak signal or early warning. Single isolated event, minor drift. |
+| Informational | Baseline observation — scope note, positive posture, or neutral environmental fact. |
+
+### Dual classification
+
+Every finding carries both a RAISE category and, where applicable, OWASP LLM and OWASP Agentic references. This makes findings legible to teams familiar with either taxonomy.
+
+---
+
+## 7. HTML Report
+
+Each analysis produces a self-contained HTML report from a canonical template (`skills/behavior-verifier/report_template.html`). The template is brand-compliant and not subject to per-analysis redesign. Praxen does **not** render the HTML with the LLM: the skill (Step 11) runs `render.py`, a bundled deterministic Python script (standard library only) that substitutes the canonical findings JSON (§6) into the template — same JSON in, byte-identical HTML out, every time. The renderer also writes the `.txt` summary. The template, the renderer (`render.py`), the Step 10 converter (`manifest_to_findings.py`), and the schema validator (`schema.py`) are version-locked and ship together. `render.py` and `manifest_to_findings.py` are parallel in shape: both pure stdlib, both deterministic, both refuse to write malformed output — the LLM does judgment, code does the mechanical substitution.
+
+**Sections, in order** (the masthead gives the verdict at a glance; below it the flow walks from "what the agent is" to the maturity verdict):
+
+1. **Masthead** — navy band with an orange brand rule, carrying the Praxen brand lockup (inline SVG), the report identity (`<Agent> Analysis Report` and the completion date with artifact count examined), and an at-a-glance metric cluster: finding counts by severity and the RAISE maturity score (the score readout and progress bar are color-graded by maturity band — red below 2.0, amber below 3.5, green at or above)
+2. **Agent Remit (as declared)** — a short prose summary of the agent's declared intent, the baseline everything below is measured against
+3. **Behavior Summary (as observed)** — the dominant finding pattern, 2–4 sentences of synthesis
+4. **Scope of Analysis** — a short prose summary of what was actually examined (source code, deployment state, or behavioral transcript — named explicitly)
+5. **Remit Coverage** — every actionable remit rule with quoted text, status (Verified / Gap / Partial / Vague Policy / Enforcement Not Possible), and a link to the linked finding
+6. **Findings Register** — findings ordered Critical → High → Medium → Low → Informational; each card shows severity badge, ID, summary, RAISE/OWASP-LLM/OWASP-Agentic/MCP tags (each a link to that entry in the framework docs), quoted policy rule, evidence block, a confidence bubble (color-stepped dot; links to the guide's "How confidence is assigned"), and recommended action
+7. **What's Working Well** — verified positive controls
+8. **Discovered Log Files** — log files found during the analysis, annotated with source / content type / purpose / modification time
+9. **OWASP LLM Top 10 (2026) Coverage** — full-bleed 5×2 grid, one card per LLM01–LLM10. Each populated card shows up to three most-severe findings as clickable chips (severity dot + summary, anchored to the matching Findings Register entry); empty cells render a muted "No findings" placeholder so the grid reads as a coverage map, not just a hit list. Driven by each finding's `owasp_llm` scalar; per-card ordering is severity DESC then finding-ID ASC, deterministic and capped at three (the full set still appears in §6's Findings Register).
+10. **OWASP Agentic Top 10 (2026) Coverage** — mirror of #9, driven by `owasp_agentic` (ASI01–ASI10).
+11. **RAISE Maturity Posture** — the wrap-up: a weighted-overall hero band with the maturity label, a 3×2 grid of the six category cards (score, confidence, weight, rationale), and the fixed 0–5 rubric table. Placed at the end on purpose, so the maturity score lands as a synthesis verdict rather than a headline that biases interpretation.
+12. **Footer** — navy band mirroring the masthead: brand lockup, repository link, project sponsor (Exabeam), and a legal line (Praxen version, license, copyright)
+
+The page renders correctly as `file://` — all CSS is inline, no external scripts, no external fonts beyond the declared Arial/Lausanne stack.
+
+---
+
+## 8. Running an Analysis
+
+### Prerequisites
+
+- A coding agent installed and authenticated — Claude Code or OpenAI Codex (any agent that can read a skill file and call tools works)
+- Access to that agent's LLM provider (e.g. an Anthropic API key for Claude Code; an OpenAI account for Codex)
+- Python 3.9+ on the PATH (used by `render.py`; standard library only — nothing to `pip install`)
+- The Praxen package in a directory the coding agent can see
+- A Worker Remit for the agent being analyzed (or willingness to write one through the coding agent)
+
+No scheduler, daemon, installer, or configuration file is required.
+
+### Steps
+
+1. Drop the Praxen directory anywhere on disk.
+2. Optionally place a `WORKER_REMIT.md` next to `skills/behavior-verifier/SKILL.md` (Praxen will find it automatically).
+3. Open a session in your coding agent, in the Praxen directory (or any parent).
+4. Tell the coding agent:
+   > *"Please read and run skills/behavior-verifier/SKILL.md to analyze [agent workspace path]."*
+5. Praxen reads the workspace, analyzes it, writes a parser-grade draft manifest, runs `manifest_to_findings.py` to translate the manifest into the canonical findings JSON, then runs `render.py` to produce the HTML report and the `.txt` summary — five files in `./reports/` (the evidence checkpoint and the draft manifest are working artifacts that can be deleted after the run; the JSON + HTML + TXT are the deliverables).
+6. Open the HTML report in a browser.
+
+### Re-running
+
+Each invocation is independent. To re-analyze after changes, invoke the skill again — a new set of timestamped files is written to `./reports/`; prior reports are not overwritten.
+
+### Automated scheduling
+
+Praxen does not ship a scheduler. If recurring scans are desired, wrap the agent invocation in whatever scheduler the operator already uses. Example patterns: a nightly cron job (e.g. `claude -p "$(cat skills/behavior-verifier/SKILL.md)"` on Claude Code, or the Codex CLI equivalent), a GitHub Action on pull request, a launchd timer on macOS. Praxen is stateless across invocations, so scheduling is purely an operator concern.
+
+### Context window pressure on large workspaces
+
+An analysis over a large workspace — archived or snapshotted projects, multi-directory trees, 50+ artifacts — can consume enough context that the coding agent's session auto-compacts mid-analysis. Compaction during synthesis is a *silent* failure: a report is still produced, but findings gathered early in the run can be lost or over-summarized before the canonical JSON is written. Praxen is built to survive that:
+
+- At the end of Step 4, Praxen writes a flat **evidence checkpoint** at `./reports/<agent-slug>-evidence-<timestamp>.txt` — the files read and the first-pass signals (credential patterns by location, binding addresses, dependency pins, stub controls, MCP configs, log files) — so a compaction during the long read-and-analyze span (Steps 4–8, dozens of reads before any manifest exists) can be resumed without re-discovering the workspace from scratch. Later steps append to it: Step 5's per-category `RAISE NOTES`, Step 8b's `MATURITY (M1-M12)` record, and Step 8.5's `THEMES` outline — the full evidence set the Step 9.4 scoring reads, persisted so a compaction cannot silently remove a scoring input.
+- At Step 9.9, Praxen writes a parser-grade **draft manifest** at `./reports/<agent-slug>-draft-<timestamp>.md` carrying the full synthesis (every finding, the RAISE posture, the remit audit). This manifest is the primary input to Step 10 — `manifest_to_findings.py` reads it directly to produce the canonical JSON, with no reliance on conversational state — which also makes a compacted session recoverable: an operator can rerun Step 10's script against the manifest on disk regardless of whether the original session survived. Its `--validate-manifest` mode structure-checks the manifest (reporting every problem, recovering at section boundaries) and is safe to run against a mid-composition skeleton.
+- Findings are **appended to the draft manifest as each is drafted** (Step 9), not composed in one terminal burst at 9.9 — a decomposition committed up front in a Step 8.5 themes outline makes the per-finding drafting mechanical. This interleaving is what keeps a long scan off the watchdog (no minutes-long silent compose) and ensures a compaction finds most findings already on disk. The 9.9 gate then prints an **interim overview** (behavior summary, RAISE posture, finding counts) to stdout, so the operator sees the synthesis even if the session later truncates.
+- Rendering the report is a **deterministic Python step (Step 11)**, not LLM work — it doesn't compete for the context window, runs in well under a second, and writes the `.txt` summary to `./reports/` alongside stdout, so the summary survives even if terminal output is lost.
+
+The draft manifest makes a compacted run recoverable; it does not prevent compaction. The most reliable way to minimize context pressure is still to scope the input to the agent's own surface (not the enclosing repo) and run in the largest available context window — see `docs/usage.md`, "Large workspaces and context sizing". For a genuinely large archive, analyze one subdirectory at a time and diff the findings JSON files afterward.
+
+---
+
+## 9. Knowledge Base
+
+Praxen's judgments are calibrated by a curated knowledge base in `knowledge/`. These files give the model the domain vocabulary, risk taxonomy, and pattern recognition needed to produce consistent, well-classified findings across scans.
+
+| File | Contents |
+|------|----------|
+| `KB_RAISE_SCANNING.md` | RAISE framework scanning methodology — scoring model, artifact intake patterns, signal-to-risk heuristics, inference rules, compound patterns, positive posture signals. Primary calibration file. |
+| `KB_LLM_TOP10.md` | OWASP Top 10 for LLM Applications 2026 — distilled to code patterns, behavioral indicators, and cross-category compound risks, with a centralized primary-arbitration section. |
+| `KB_AGENTIC_TOP10.md` | OWASP Top 10 for Agentic Applications 2026 — agentic-specific attack patterns and the ASI taxonomy for classifying findings. |
+| `KB_MCP_SECURITY.md` | OWASP's *A Practical Guide for Secure MCP Server Development 2026* — MCP-specific vulnerability landscape and minimum-bar checklist. Loaded only when MCP configuration is discovered in the workspace. |
+
+The knowledge base does not implement detection logic. It gives the model a calibrated framework for recognizing risk patterns, scoring consistently, classifying findings against both RAISE and OWASP taxonomies, and generating grounded recommendations.
+
+---
+
+## 10. Implementation Guidance
+
+### Model selection
+
+Praxen is designed to run on a frontier model — Anthropic's Sonnet-class (or higher) on Claude Code, a comparable tier on OpenAI Codex (validated on GPT-5-class). Smaller models do not reliably perform the remit-implementation cross-referencing Praxen requires. The skill file does not hardcode a model — the coding agent selects based on its session configuration.
+
+### Confidence calibration beats threshold tuning
+
+When a finding is uncertain, mark it `"confidence": "Low"` and let it surface in the report rather than suppressing it. A Low-confidence signal that appears repeatedly across analysis runs is valuable signal that would be invisible if suppressed.
+
+### Specificity of the Worker Remit determines analysis quality
+
+Detection quality is directly proportional to remit specificity. A remit that says "handle tasks as directed" produces Low-confidence findings everywhere. A remit with specific channel lists, counterparty lists, tool inventories, and action boundaries produces High-confidence, actionable findings. When helping operators write a remit, push for verifiable rules.
+
+### Success criteria
+
+Praxen is operating well when:
+
+1. An analysis against an intentionally misconfigured test agent produces at least one Critical or High finding with specific file:line evidence and a recommended action.
+2. `manifest_to_findings.py` exits 0 (guaranteeing the manifest parsed and the produced JSON validated against `schema.py`) and `render.py` exits 0 (guaranteeing the HTML/TXT contain no unresolved markers), and the HTML report renders correctly in a browser opened directly from `./reports/`.
+3. The findings JSON is the v2.0 canonical object and is suitable for direct ingestion into downstream systems (no HTML parsing needed for the summary, posture score, or counts).
+4. Every actionable remit rule appears in the Remit Coverage section with a status (Verified / Gap / Partial / Vague Policy / Enforcement Not Possible).
+
+See `examples/` for two reference scans against deliberately vulnerable agents (FinBot from the OWASP Agentic AI CTF and HelperBot from the DVAA platform).
+
+---
+
+## 11. Design Lineage
+
+The Praxen operationalizes the **RAISE Security Review Skill** — a structured framework for evaluating AI system security posture across six categories using real artifacts as inputs: code, prompts, configs, logs, policy documents. The RAISE Skill was designed as a one-time review; Praxen packages it as a droppable, re-runnable tool focused on the AI agent environment specifically.
+
+The key design decisions in Praxen's synthesis:
+- A single Worker Remit serves as the policy baseline — Praxen's primary signal is divergence between declared policy and observed implementation.
+- A unified canonical findings JSON with dual RAISE + OWASP classification is the complete record; it carries every prose field the report shows, so JSON-only consumers see the same content as humans.
+- A canonical HTML template *plus* two deterministic Python scripts in sequence (`manifest_to_findings.py` translates the Step 9.9 draft manifest into the canonical findings JSON; `render.py` substitutes the JSON into the template): the LLM does judgment, code does the mechanical substitution — so the report's structure and styling are identical regardless of which model produced the findings (the renderer is deterministic: a given findings JSON always yields byte-identical HTML and TXT), and a malformed analysis fails loudly at the schema validator rather than producing a broken report. The findings themselves are LLM judgment and vary run to run; it is the rendering, not the analysis, that is byte-deterministic.
+- The package is self-contained: drop the directory, run the skill, read the report. No installer, no config file, no persistent state. (Python 3 is the one runtime besides the coding agent — stdlib only.)
+
+---
+
+*Praxen is built on the RAISE framework, developed by Steve Wilson. To learn more, see his book [The Developer's Playbook for Large Language Model Security](https://www.oreilly.com/library/view/the-developers-playbook/9781098162191/).*
