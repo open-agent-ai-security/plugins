@@ -90,15 +90,15 @@ codex plugin list
   (`marketplace-sync.yml` + `check_marketplace_mirror.py`, currently on praxen's `dev` and
   reaching `main` with the 1.2 release) compares praxen's entry against this index; there
   is no check in this repo, and nothing checks the socxen entry.
-- `main` is protected: changes land by PR with a required approval, and CI validates the
-  manifest with **main's** copy of `scripts/validate_catalog.py`, so a PR can't relax the
-  rules and repoint a source in one change.
-  **Known gap:** on `pull_request` the workflow file itself comes from the PR, so a PR can
-  still edit the gate step. `.github/CODEOWNERS` exists to close this, but it only
-  auto-requests reviewers until **"Require review from Code Owners"** is enabled on the
-  branch protection rule — until then, treat a green `catalog` check as evidence about the
-  manifest, not proof the gate ran as written, and review diffs to `/.github/` and
-  `/scripts/` accordingly.
+- `main` is protected, and the protection is enforced: every change lands by PR with one
+  approving review, **review from a code owner is required** (`.github/CODEOWNERS` covers
+  the manifest, `scripts/` and `.github/` — the three places that decide what installs and
+  how it is checked), stale approvals are dismissed on new pushes, the `catalog` check must
+  pass on a branch that is up to date with `main`, and force-pushes and deletion are blocked.
+  CI validates the manifest with **main's** copy of `scripts/validate_catalog.py`, so a PR
+  can't relax the rules and repoint a source in one change. A PR that edits the workflow or
+  the validator therefore cannot merge without a code owner reading that diff — which is the
+  review to give it.
 
 ## License
 
