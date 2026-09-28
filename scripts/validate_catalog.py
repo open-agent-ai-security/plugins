@@ -13,7 +13,7 @@ user. The rules below are therefore a SECURITY gate, not a style check:
     `https://github.com/open-agent-ai-security/../attacker/repo.git`, which
     git silently normalizes to another org);
   - source type is 'url' (whole repo) or 'git-subdir' (a subdirectory of the
-    repo — used when a plugin ships only part of its repo, e.g. socxen#66's
+    repo — used when a plugin ships only part of its repo, e.g. raffkin#66's
     plugin/ payload split). 'git-subdir' additionally requires `path`: a
     strictly relative, traversal-free directory path — segments of
     [A-Za-z0-9._-] only, no leading/trailing '/', no '.' or '..' segments,

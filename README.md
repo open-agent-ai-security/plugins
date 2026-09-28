@@ -19,22 +19,22 @@ Then install what you need:
 
 ```bash
 claude plugin install praxen@open-agent-ai-security
-claude plugin install socxen@open-agent-ai-security
+claude plugin install raffkin@open-agent-ai-security
 ```
 
 | Plugin | What it does | Repo |
 |---|---|---|
 | **praxen** | Agent behavior verifier — compares an AI agent's declared policy (Worker Remit) against the available evidence and reports where observed behavior diverges from declared intent, scored against the RAISE framework and OWASP LLM/Agentic guidance. | [open-agent-ai-security/praxen](https://github.com/open-agent-ai-security/praxen) |
-| **socxen** | Agentic SOC analyst — triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP, with governance gates and guardrails. | [open-agent-ai-security/socxen](https://github.com/open-agent-ai-security/socxen) |
+| **raffkin** | Agentic SOC analyst — triages Exabeam New-Scale alerts and cases end to end via the Exabeam MCP, with governance gates and guardrails. | [open-agent-ai-security/raffkin](https://github.com/open-agent-ai-security/raffkin) |
 
 The in-session equivalents (`/plugin marketplace add …`, `/plugin install …`) do the same
 thing; run `/reload-plugins` (or restart the session) after an in-session install.
 
 ## Migrating from an older install path
 
-Both plugins were previously distributed from marketplaces hosted in their own repos.
-The marketplace name (`open-agent-ai-security`) and the plugin keys are unchanged, so
-migration is one command and nothing about your installed plugins is lost.
+Praxen was previously distributed from a marketplace hosted in its own repo. The
+marketplace name (`open-agent-ai-security`) and the plugin key are unchanged, so migration
+is one command and nothing about your installed plugin is lost.
 
 **Praxen users** — if you added the marketplace from `open-agent-ai-security/praxen`,
 just add this one; the same-named marketplace is re-pointed in place and your installed
@@ -47,21 +47,7 @@ claude plugin marketplace add open-agent-ai-security/plugins
 Do **not** run `claude plugin marketplace remove` first — removing a marketplace
 uninstalls the plugins that came from it, and it isn't necessary. Migrating is optional
 for praxen (the legacy repo still publishes a praxen-only marketplace) but **required to
-install socxen**, which only this catalog publishes.
-
-**socxen users** — if you installed the plugin as `socxen@socxen`, remove that marketplace
-first. It has a *different* name from this one, so simply adding this catalog would leave you
-with two enabled copies of socxen (the current release and the retired one), both registering
-the `soc-investigate` skill:
-
-```bash
-claude plugin marketplace remove socxen                        # also uninstalls socxen@socxen
-claude plugin marketplace add open-agent-ai-security/plugins   # re-points in place if already present
-claude plugin install socxen@open-agent-ai-security
-```
-
-A separate `claude plugin uninstall socxen@socxen` isn't needed — removing the marketplace
-uninstalls its plugins, which is the point here.
+install raffkin**, which only this catalog publishes.
 
 ## OpenAI Codex
 
@@ -89,7 +75,7 @@ codex plugin list
   praxen's CI and the legacy install path. A one-way drift check
   (`marketplace-sync.yml` + `check_marketplace_mirror.py`, currently on praxen's `dev` and
   reaching `main` with the 1.2 release) compares praxen's entry against this index; there
-  is no check in this repo, and nothing checks the socxen entry.
+  is no check in this repo, and nothing checks the raffkin entry.
 - `main` is protected, and the protection is enforced: every change lands by PR with one
   approving review, **review from a code owner is required** (`.github/CODEOWNERS` covers
   the manifest, `scripts/` and `.github/` — the three places that decide what installs and
